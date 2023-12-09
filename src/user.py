@@ -29,6 +29,23 @@ class Session:
         self.agreed: bool = False
 
 
+def mk_kdf(msg_key: bytes, salt=0) -> tuple[bytes, bytes]:
+    hkdf = HKDF(algorithm=hashes.SHA256(),
+                length=48,
+                salt=salt.to_bytes(48, 'big'),
+                info=b'msg encryption')
+    keys = hkdf.derive(msg_key)
+    hkdf = HKDF(algorithm=hashes.SHA256(),
+                length=48,
+                salt=salt.to_bytes(48, 'big'),
+                info=b'msg encryption')
+    hkdf.verify(msg_key, keys)
+
+    mk = keys[0:32]
+    nonce = keys[32:48]
+    return mk, nonce
+
+
 class User:
     def __init__(self, uid: str):
         self.__sessions: list[Session] = []
@@ -204,7 +221,7 @@ class User:
         if dh_ratchet:
             self.__dh_ratchet(sesh, send=True)
         msg_key = self.__sym_ratchet(sesh, send=True)
-        mk, nonce = self.__mk_kdf(msg_key)
+        mk, nonce = mk_kdf(msg_key)
 
         # Build the header and concatenate with random bytes for associated data
         header = Header(src=self.__uid,
@@ -235,7 +252,7 @@ class User:
             self.__dh_ratchet(sesh, send=False)
 
         mk = self.__sym_ratchet(sesh, send=False)
-        msgk, nonce = self.__mk_kdf(mk)
+        msgk, nonce = mk_kdf(mk)
 
         aesgcm = AESGCM(msgk)
         plaintext = aesgcm.decrypt(nonce, packet.message, associated_data).decode('utf-8')
@@ -286,23 +303,6 @@ class User:
         n1 = 1
         hm_mk.update(n1.to_bytes(1, 'big'))
         return hm_mk.finalize()
-
-    def __mk_kdf(self, msg_key: bytes) -> tuple[bytes, bytes]:
-        salt = 0
-        hkdf = HKDF(algorithm=hashes.SHA256(),
-                    length=48,
-                    salt=salt.to_bytes(48, 'big'),
-                    info=b'msg encryption')
-        keys = hkdf.derive(msg_key)
-        hkdf = HKDF(algorithm=hashes.SHA256(),
-                    length=48,
-                    salt=salt.to_bytes(48, 'big'),
-                    info=b'msg encryption')
-        hkdf.verify(msg_key, keys)
-
-        mk = keys[0:32]
-        nonce = keys[32:48]
-        return mk, nonce
 
     def __handshake_packs(self, pub_key: X25519PublicKey, nonce: bytes, msg: bytes, destination_user: str) -> Packet:
         header = Header(src=self.__uid,
