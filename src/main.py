@@ -1,46 +1,41 @@
-import socket
+import asyncio
+import sys
 
+from client_server import ClientServer, Server
 from user import User
 
 
-class AWSUser:
-    def __init__(self, username: str, ip: str, port: int):
-        self.ss = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self.ss.bind((ip, port))
-
-
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
+async def main():
+    if len(sys.argv) == 2:
+        if sys.argv[1] == "Alice":
+            pass
+        elif sys.argv[0] == "Bob":
+            pass
     alice = User("Alice")
     bob = User("Bob")
-    charlie = User("Charlie")
+    server1 = ClientServer(1337, 1)
+    server2 = ClientServer(2337, 2)
 
-    bob.init_session("Alice")
-    charlie.init_session("Bob")
-    alice.init_session("Charlie")
+    s1 = Server(sid=1,
+                send_addr=('localhost', 1337),
+                pub_key=server1.get_public_key(),
+                agreed=False,
+                users=["Alice"])
+    s2 = Server(sid=2,
+                send_addr=('localhost', 2337),
+                pub_key=server2.get_public_key(),
+                agreed=False,
+                users=["Bob"])
 
-    for ii in range(0, 13):
-        bob_msg = bob.get_send_queue()
-        charlie_msg = charlie.get_send_queue()
-        alice_msg = alice.get_send_queue()
+    server1.add_user(alice)
+    server2.add_user(bob)
+    server1.add_server(s2)
+    server2.add_server(s1)
 
-        for msg in bob_msg:
-            match msg.dest:
-                case "Alice":
-                    alice.receive(msg.pack_encrypted)
-                case "Charlie":
-                    charlie.receive(msg.pack_encrypted)
+    await asyncio.gather(server2.run(),
+                         server1.run(),
+                         bob.init_session("Alice"))
 
-        for msg in charlie_msg:
-            match msg.dest:
-                case "Alice":
-                    alice.receive(msg.pack_encrypted)
-                case "Bob":
-                    bob.receive(msg.pack_encrypted)
 
-        for msg in alice_msg:
-            match msg.dest:
-                case "Bob":
-                    bob.receive(msg.pack_encrypted)
-                case "Charlie":
-                    charlie.receive(msg.pack_encrypted)
+if __name__ == '__main__':
+    asyncio.run(main())

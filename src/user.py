@@ -93,9 +93,11 @@ class User:
                     break
 
     def __send(self, packet: Packet):
+        # print(f"sending {packet}")
         self.__send_queue.append(packet)
+        # print(f"sent {self.get_send_queue()}")
 
-    def init_session(self, uid: str):
+    async def init_session(self, uid: str):
         private_key = X25519PrivateKey.generate()
         public_key = private_key.public_key()
 
