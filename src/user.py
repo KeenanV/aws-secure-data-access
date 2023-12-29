@@ -61,6 +61,7 @@ class User:
         return self.__uid
 
     def receive(self, packet: PackEncrypted):
+        print(f"{self.__uid} received a message")
         associated_data = packet.header
         header: Header = cpickle.loads(associated_data[8:])
 
@@ -98,6 +99,7 @@ class User:
         # print(f"sent {self.get_send_queue()}")
 
     async def init_session(self, uid: str):
+        print(f"{self.__uid} initializing with {uid}")
         private_key = X25519PrivateKey.generate()
         public_key = private_key.public_key()
 

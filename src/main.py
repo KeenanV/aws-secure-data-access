@@ -32,8 +32,8 @@ async def main():
     server1.add_server(s2)
     server2.add_server(s1)
 
-    await asyncio.gather(server2.run(),
-                         server1.run(),
+    await asyncio.gather(server1.run(),
+                         server2.run(),
                          bob.init_session("Alice"))
 
 
