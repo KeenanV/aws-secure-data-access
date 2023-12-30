@@ -30,6 +30,8 @@ class Server:
         self.verified: bool = False
         self.users: list[str] = users
         self.vnum: list[int] = [0, 0]
+        self.reader: StreamReader | None = None
+        self.writer: StreamWriter | None = None
 
 
 class ClientServer:
@@ -41,7 +43,7 @@ class ClientServer:
         #     self.__private_key = Ed25519PrivateKey.generate()
         #     ff.write(self.__private_key.private_bytes_raw())
 
-        with open(f"server{self.sid}_key.txt", 'rb') as ff:
+        with open(f"../server{self.sid}_key.txt", 'rb') as ff:
             bb = ff.read()
             self.__private_key = Ed25519PrivateKey.from_private_bytes(bb)
 
@@ -60,21 +62,21 @@ class ClientServer:
             await server.serve_forever()
 
     async def listen(self, reader: StreamReader, writer: StreamWriter):
-        for ii in range(10):
-            print("listening")
+        while True:
+            # print("listening")
             packet = await reader.read(2048)
             if not packet:
                 print("Empty")
                 break
             addr = writer.get_extra_info('peername')
-            print("Received")
+            # print("Received")
             await self.receive_message(packet, addr[0], addr[1])
-            print("Processed")
+            # print("Processed")
         writer.close()
         print("Closed")
 
     async def receive_message(self, message: bytes, hostname: str, port: int):
-        print("received message")
+        # print("received message")
         signature = message[:64]
         ct = message[64:]
 
@@ -175,13 +177,15 @@ class ClientServer:
             await self.send_message(packet, server)
 
     async def send_message(self, message: Packet | bytes, server: Server):
-        print("opening conn")
-        try:
-            reader, writer = await asyncio.open_connection(server.send_addr[0], server.send_addr[1])
-            print("Connection established")
-        except asyncio.TimeoutError:
-            print("Connection attempt timed out")
-            return
+        while server.reader is None or server.writer is None:
+            print("opening conn")
+            try:
+                server.reader, server.writer = await asyncio.open_connection(server.send_addr[0], server.send_addr[1])
+                print("Connection established")
+                break
+            except:
+                print("Connection attempt timed out")
+                continue
 
         if type(message) is Packet:
             if not server.agreed:
@@ -196,14 +200,14 @@ class ClientServer:
 
                 signature = self.__private_key.sign(ct)
                 packet = signature + ct
-                writer.write(packet)
-                print("Verified sent")
+                server.writer.write(packet)
         else:
-            writer.write(message)
+            server.writer.write(message)
 
-        await writer.drain()
-        writer.close()
-        await writer.wait_closed()
+        # TODO: implement method to close session
+        # await writer.drain()
+        # writer.close()
+        # await writer.wait_closed()
 
     async def check_outbound_msgs(self):
         print(f"SID: {self.__hostport}")
@@ -212,8 +216,10 @@ class ClientServer:
             wait = False
             for server in self.__servers:
                 if server.verified is False:
-                    if not server.agreed and self.sid == 1:
-                        await self.handshake(server, None)
+                    if not server.agreed and server.shared_key is None:
+                        await asyncio.sleep(random.SystemRandom().randint(0, 100) / 20)
+                        if not server.agreed and server.shared_key is None:
+                            await self.handshake(server, None)
                     wait = True
                     break
                 await asyncio.sleep(0)
@@ -223,11 +229,6 @@ class ClientServer:
             for usr in self.__users:
                 # print("Got send queue")
                 packets = usr.get_send_queue()
-                if usr.get_uid() == "Bob":
-                    pass
-                    # print(f"packets: {packets}")
-                    # print(f"user: {usr.get_uid()}")
-                    # await asyncio.sleep(5)
                 if packets:
                     # print("sending")
                     for packet in packets:

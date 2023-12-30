@@ -1,40 +1,45 @@
 import asyncio
 import sys
 
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
 from client_server import ClientServer, Server
 from user import User
 
 
 async def main():
-    if len(sys.argv) == 2:
-        if sys.argv[1] == "Alice":
-            pass
-        elif sys.argv[0] == "Bob":
-            pass
-    alice = User("Alice")
-    bob = User("Bob")
-    server1 = ClientServer(1337, 1)
-    server2 = ClientServer(2337, 2)
+    if len(sys.argv) == 7:
+        usr = User(sys.argv[1])
+        port = int(sys.argv[2])
+        sid = int(sys.argv[3])
+        s2_usr = sys.argv[4]
+        s2_port = int(sys.argv[5])
+        s2_sid = int(sys.argv[6])
+    else:
+        print("Usage: main.py <UID> <port> <SID> <target UID> <target port> <target SID>")
+        return
 
-    s1 = Server(sid=1,
-                send_addr=('localhost', 1337),
-                pub_key=server1.get_public_key(),
+    server = ClientServer(port, sid)
+    with open(f"server{s2_sid}_key.txt", 'rb') as ff:
+        bb = ff.read()
+        s2_priv_key = Ed25519PrivateKey.from_private_bytes(bb)
+
+    s2 = Server(sid=s2_sid,
+                send_addr=('localhost', s2_port),
+                pub_key=s2_priv_key.public_key(),
                 agreed=False,
-                users=["Alice"])
-    s2 = Server(sid=2,
-                send_addr=('localhost', 2337),
-                pub_key=server2.get_public_key(),
-                agreed=False,
-                users=["Bob"])
+                users=[s2_usr])
 
-    server1.add_user(alice)
-    server2.add_user(bob)
-    server1.add_server(s2)
-    server2.add_server(s1)
+    server.add_user(usr)
+    server.add_server(s2)
 
-    await asyncio.gather(server1.run(),
-                         server2.run(),
-                         bob.init_session("Alice"))
+    if usr.get_uid() == "Bob":
+        await asyncio.gather(server.run(),
+                             usr.init_session(s2_usr),
+                             usr.cli_input())
+    else:
+        await asyncio.gather(server.run(),
+                             usr.cli_input())
 
 
 if __name__ == '__main__':

@@ -1,3 +1,4 @@
+import asyncio
 import os
 import random
 import _pickle as cpickle
@@ -60,8 +61,14 @@ class User:
     def get_uid(self) -> str:
         return self.__uid
 
+    async def cli_input(self):
+        while True:
+            loop = asyncio.get_running_loop()
+            new_msg = await loop.run_in_executor(None, input, f"{self.__uid}'s chat: ")
+            self.__encrypt(self.__sessions[0], new_msg, [Flags.MESSAGE], dh_ratchet=True)
+
     def receive(self, packet: PackEncrypted):
-        print(f"{self.__uid} received a message")
+        # print(f"{self.__uid} received a message")
         associated_data = packet.header
         header: Header = cpickle.loads(associated_data[8:])
 
@@ -89,8 +96,6 @@ class User:
                                 self.__sessions.remove(sesh)
                     else:
                         print(f"{self.__uid} received message: {message}")
-                        new_msg = f"{self.__uid} sending message to {header.src}"
-                        self.__encrypt(sesh, new_msg, [Flags.MESSAGE], dh_ratchet=True)
                     break
 
     def __send(self, packet: Packet):
