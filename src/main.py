@@ -20,7 +20,7 @@ async def main():
         return
 
     server = ClientServer(port, sid)
-    with open(f"server{s2_sid}_key.txt", 'rb') as ff:
+    with open(f"/Users/keenanv/Documents/Programming/Python/double-ratchet-comms/server{s2_sid}_key.txt", 'rb') as ff:
         bb = ff.read()
         s2_priv_key = Ed25519PrivateKey.from_private_bytes(bb)
 

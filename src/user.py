@@ -95,7 +95,7 @@ class User:
                             else:
                                 self.__sessions.remove(sesh)
                     else:
-                        print(f"{self.__uid} received message: {message}")
+                        print(f"{self.__uid} received message: {message}\n")
                     break
 
     def __send(self, packet: Packet):

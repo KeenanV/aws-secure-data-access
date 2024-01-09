@@ -43,7 +43,7 @@ class ClientServer:
         #     self.__private_key = Ed25519PrivateKey.generate()
         #     ff.write(self.__private_key.private_bytes_raw())
 
-        with open(f"../server{self.sid}_key.txt", 'rb') as ff:
+        with open(f"/Users/keenanv/Documents/Programming/Python/double-ratchet-comms/server{self.sid}_key.txt", 'rb') as ff:
             bb = ff.read()
             self.__private_key = Ed25519PrivateKey.from_private_bytes(bb)
 
