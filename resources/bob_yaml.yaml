@@ -1,0 +1,30 @@
+!User
+send_queue: []
+sessions:
+- !Session
+  agreed: false
+  ckr: i5HpA8f5VGOkQ43JmMc/95/7XVfdM5Lq+PBfF+CooBM=
+  cks: 3kKjxLoP2bpO+NYQwioK+/mfcsJ0VAXG3ho1su/DdYQ=
+  dhr_public: H1g2YJcDXeAGqCP1BPNOqvE5mQQ1p0DgLRXCRZ3x9mY=
+  dhs_private: gCpdVku9wcgyLNAkm4u+xW+iMBXxJxyKvxWTdUqGaWI=
+  dhs_public: hLT5kW+C5hadACPdhkhaBs+ffkqJtRXjWVSAodC8RHc=
+  mkskipped: {}
+  nr: 1
+  ns: 0
+  pn: 0
+  rk: HAlUeBdYkJ2ol+1fw6mpYl74/LqAjuh5GD45qsJbBHI=
+  uid: Alice
+- !Session
+  agreed: true
+  ckr: /WCXDWZz4aouFiAShCFFQ3jWLZbhnV6pdlzWGvtJTpM=
+  cks: pl4sgcb3/9wocaG4s7ukIE9LmyPMVdLrFSq9E0UmrIY=
+  dhr_public: kXAl8g74wm/fxFQDumSh10VV28egwvK3kFkb69jy9CQ=
+  dhs_private: SOHJsCoauDnuHoEcF32NELU+gM0W5bhqKuoxp47W51c=
+  dhs_public: zbbfW5WIskpXoi7rjcV3ier+NID24jqyjovDmVisXmk=
+  mkskipped: {}
+  nr: 2
+  ns: 0
+  pn: 0
+  rk: rcMHHXl3FDEJbzFzblBV4LPoPc8WQ25P+jewErNVQFY=
+  uid: Charlie
+uid: Bob

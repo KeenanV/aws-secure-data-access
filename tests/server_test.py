@@ -1,40 +1,20 @@
 import asyncio
 import sys
-
-from client_server import ClientServer, Server
-from user import User
+import yaml
+from client_server import ClientServer
 
 
 async def main():
-    if len(sys.argv) == 2:
-        if sys.argv[1] == "Alice":
-            pass
-        elif sys.argv[0] == "Bob":
-            pass
-    alice = User("Alice")
-    bob = User("Bob")
-    server1 = ClientServer(1337, 1)
-    server2 = ClientServer(2337, 2)
+    with open(
+            f"/Users/keenanv/Documents/Programming/Python/double-ratchet-comms/resources/server{sys.argv[1]}_yaml.yaml",
+            "r") as ff:
+        server_yaml = ff.read()
 
-    s1 = Server(sid=1,
-                send_addr=('localhost', 1337),
-                pub_key=server1.get_public_key(),
-                agreed=False,
-                users=["Alice"])
-    s2 = Server(sid=2,
-                send_addr=('localhost', 2337),
-                pub_key=server2.get_public_key(),
-                agreed=False,
-                users=["Bob"])
+    server: ClientServer = yaml.safe_load(server_yaml)
+    print("loaded")
 
-    server1.add_user(alice)
-    server2.add_user(bob)
-    server1.add_server(s2)
-    server2.add_server(s1)
-
-    await asyncio.gather(server1.run(),
-                         server2.run(),
-                         bob.init_session("Alice"))
+    await asyncio.gather(server.run(),
+                         server.get_user(sys.argv[2]).cli_input())
 
 
 if __name__ == '__main__':

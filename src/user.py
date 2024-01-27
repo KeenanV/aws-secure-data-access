@@ -1,6 +1,15 @@
 import asyncio
+import base64
+import curses
 import os
+import queue
 import random
+import sys
+import threading
+import time
+import timeit
+
+import yaml
 import _pickle as cpickle
 
 from cryptography.hazmat.primitives import hashes, hmac
@@ -11,7 +20,10 @@ from packet import PackEncrypted, Flags, Header, Packet
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
 
 
-class Session:
+class Session(yaml.YAMLObject):
+    yaml_tag = u'!Session'
+    yaml_loader = yaml.SafeLoader
+
     def __init__(self, uid: str, dhs, rk=None, dhr: X25519PublicKey | None = None,
                  cks: bytes | None = None, ckr: bytes | None = None, ns=-1, nr=-1, pn=0, mkskipped=None):
         if mkskipped is None:
@@ -28,6 +40,62 @@ class Session:
         self.verify: int = 0
         self.mkskipped: dict = mkskipped
         self.agreed: bool = False
+
+    @classmethod
+    def to_yaml(cls, representer, node):
+        dhs_private_bytes = node.dhs[0].private_bytes_raw() if node.dhs[0] else None
+        dhs_public_bytes = node.dhs[1].public_bytes_raw() if node.dhs[1] else None
+        d = {
+            'uid': node.uid,
+            'dhs_private': base64.b64encode(dhs_private_bytes).decode('ascii') if dhs_private_bytes else None,
+            'dhs_public': base64.b64encode(dhs_public_bytes).decode('ascii') if dhs_public_bytes else None,
+            'rk': base64.b64encode(node.rk).decode('ascii') if node.rk else None,
+            'dhr_public': base64.b64encode(node.dhr.public_bytes_raw()).decode('ascii') if node.dhr else None,
+            'cks': base64.b64encode(node.cks).decode('ascii') if node.cks else None,
+            'ckr': base64.b64encode(node.ckr).decode('ascii') if node.ckr else None,
+            'ns': node.ns,
+            'nr': node.nr,
+            'pn': node.pn,
+            'mkskipped': node.mkskipped,
+            'agreed': node.agreed
+        }
+        return representer.represent_mapping(cls.yaml_tag, d)
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        result = {}
+        for key_node, value_node in node.value:
+            key = loader.construct_object(key_node)
+            value = loader.construct_object(value_node)
+            # If the value is a Base64 encoded string, decode it
+            if key in ['ckr', 'cks', 'rk', 'dhs_private', 'dhs_public', 'dhr_public']:
+                value = base64.b64decode(value)
+
+            if key in ['dhs_public', 'dhr_public']:
+                value = X25519PublicKey.from_public_bytes(value)
+            elif key == 'dhs_private':
+                value = X25519PrivateKey.from_private_bytes(value)
+
+            if key == 'dhr_public':
+                key = 'dhr'
+            elif key == 'agreed':
+                continue
+
+            result[key] = value
+
+        # Combine 'dhs_private' and 'dhs_public' into a tuple under 'dhs'
+        dhs_private = result.pop('dhs_private', None)
+        dhs_public = result.pop('dhs_public', None)
+        if dhs_private is not None and dhs_public is not None:
+            result['dhs'] = (dhs_private, dhs_public)
+
+        print(result)
+        # Construct and return a Session object using the result dictionary
+        return cls(**result)
+
+
+yaml.add_representer(Session, Session.to_yaml)
+yaml.add_constructor(Session.yaml_tag, Session.from_yaml)
 
 
 def mk_kdf(msg_key: bytes, salt=0) -> tuple[bytes, bytes]:
@@ -47,25 +115,176 @@ def mk_kdf(msg_key: bytes, salt=0) -> tuple[bytes, bytes]:
     return mk, nonce
 
 
-class User:
-    def __init__(self, uid: str):
-        self.__sessions: list[Session] = []
-        self.__send_queue: list[Packet] = []
+class User(yaml.YAMLObject):
+    yaml_tag = u'!User'
+    yaml_loader = yaml.SafeLoader
+
+    def __init__(self, uid: str, sessions=None, send_queue=None, recv_queue=None):
+        if sessions is None:
+            sessions = []
+        if send_queue is None:
+            send_queue = []
+        if recv_queue is None:
+            recv_queue = []
+        self.__sessions: list[Session] = sessions
+        self.__send_queue: list[Packet] = send_queue
+        self.__recv_queue: queue = queue.Queue()
         self.__uid = uid
+        self.__cli_exit = False
+        self.__write_privilege = False
+        self.__policies = ""
+        self.__next_policy: tuple[str, bool] | None = None
+        self.__vote_timer = (time.time(), "")
+
+    @classmethod
+    def to_yaml(cls, representer, node):
+        d = {
+            'uid': node.__uid,
+            'sessions': node.__sessions,
+            'send_queue': node.__send_queue
+        }
+
+        # recv_queue = []
+        # for unread in node.__recv_queue:
+        #     recv_queue.append([unread[0], unread[1]])
+        #
+        # d['recv_queue'] = recv_queue
+
+        return representer.represent_mapping(cls.yaml_tag, d)
+
+    @classmethod
+    def from_yaml(cls, loader, node):
+        # Convert the YAML node to a Python dict
+        data = loader.construct_mapping(node, deep=True)
+
+        # Process each attribute of User
+        uid = data.get('uid')
+        sessions = data.get('sessions', [])
+        send_queue = data.get('send_queue', [])
+        recv_queue = data.get('recv_queue', [])
+
+        updated_recv = []
+        for unread in recv_queue:
+            if unread:
+                updated_recv.append((unread[0], unread[1]))
+
+        # Create a new User instance with the processed data
+        return cls(uid=uid, sessions=sessions, send_queue=send_queue, recv_queue=updated_recv)
+
+    def dump_yaml(self):
+        yaml_string = yaml.dump(self)
+        print(yaml_string)
+        with open(f"{self.__uid.lower()}_yaml.yaml", "w") as ff:
+            ff.write(yaml_string)
 
     def get_send_queue(self) -> list[Packet]:
-        queue = self.__send_queue.copy()
+        send_queue = self.__send_queue.copy()
         self.__send_queue.clear()
-        return queue
+        return send_queue
 
     def get_uid(self) -> str:
         return self.__uid
 
+    async def cli_output(self):
+        self.__cli_exit = False
+        while not self.__cli_exit:
+            if not self.__recv_queue.empty():
+                unread = self.__recv_queue.get(block=False)
+                print(f"\nMessage from {unread[0]}: {unread[1]}")
+                print(f"\n{self.__uid}'s chat: ", end="")
+            await asyncio.sleep(0.1)
+
     async def cli_input(self):
-        while True:
+        self.__cli_exit = False
+        while not self.__cli_exit:
             loop = asyncio.get_running_loop()
-            new_msg = await loop.run_in_executor(None, input, f"{self.__uid}'s chat: ")
-            self.__encrypt(self.__sessions[0], new_msg, [Flags.MESSAGE], dh_ratchet=True)
+
+            usrs: list[str] = []
+            print("Who would you like to speak with?:")
+            for sesh in self.__sessions:
+                print(f"   - {sesh.uid}")
+                usrs.append(sesh.uid)
+            new_msg = await loop.run_in_executor(None, input, f"\n{self.__uid}'s chat: ")
+
+            if 'yaml' in new_msg:
+                self.dump_yaml()
+            elif 'exit' in new_msg:
+                # self.dump_yaml()
+                self.__cli_exit = True
+            elif new_msg in usrs:
+                for sesh in self.__sessions:
+                    if new_msg == sesh.uid:
+                        print(f"Now chatting with {sesh.uid}")
+                        while True:
+                            msg = await loop.run_in_executor(None, input, f"\n{self.__uid}'s chat: ")
+                            if 'exit' in msg:
+                                print("Leaving conversation")
+                                break
+                            self.__encrypt(sesh, msg, [Flags.MESSAGE], dh_ratchet=True)
+
+    async def monitor_policies(self, path: str):
+        policy_timer = time.time()
+        timer_started = False
+        while True:
+            await asyncio.sleep(0.1)
+
+            if self.__vote_timer[1] != "":
+                if self.__next_policy and self.__vote_timer[1] == self.__next_policy[0]:
+                    self.__vote_timer = (time.time(), "")
+                    self.__next_policy = (self.__next_policy[0], True)
+                    for sesh in self.__sessions:
+                        self.__encrypt(sesh, self.__next_policy[0], [Flags.VOTE], dh_ratchet=True)
+                if time.time() - self.__vote_timer[0] >= 5:
+                    self.__vote_timer = (time.time(), "")
+            if self.__write_privilege and self.__next_policy and self.__next_policy[1]:
+                with open(path, 'w') as ff:
+                    ff.write(self.__next_policy[0])
+                    print("written policies")
+            else:
+                with open(path, 'r') as ff:
+                    policies = ff.read()
+
+                if self.__next_policy and not timer_started:
+                    print(f"Sending vote {self.__next_policy}")
+                    policy_timer = time.time()
+                    timer_started = True
+                    for sesh in self.__sessions:
+                        self.__encrypt(sesh, self.__next_policy[0], [Flags.VOTE], dh_ratchet=True)
+                elif self.__next_policy is not None and timer_started:
+                    if time.time() - policy_timer < 5:
+                        if policies == self.__policies:
+                            continue
+                        elif policies == self.__next_policy[0]:
+                            print("Changes made")
+                            timer_started = False
+                            self.__policies = self.__next_policy[0]
+                            self.__next_policy = None
+                            self.__vote_timer = (time.time(), "")
+                        else:
+                            print("COMPROMISED 1")
+                            self.__vote_timer = (time.time(), "")
+                            break
+                    else:
+                        if not self.__next_policy[1]:
+                            print("COMPROMISED 2")
+                            self.__vote_timer = (time.time(), "")
+                            break
+                        elif self.__next_policy[1] and policies != self.__next_policy[0]:
+                            print("COMPROMISED 3")
+                            self.__vote_timer = (time.time(), "")
+                            break
+                        else:
+                            print("Changes made")
+                            timer_started = False
+                            self.__policies = self.__next_policy[0]
+                            self.__next_policy = None
+                            self.__vote_timer = (time.time(), "")
+
+                if policies != self.__policies:
+                    print("BREACH DETECTED")
+                    break
+                else:
+                    print("correct policies")
 
     def receive(self, packet: PackEncrypted):
         # print(f"{self.__uid} received a message")
@@ -94,12 +313,21 @@ class User:
                                 self.__encrypt(sesh, new_msg, [Flags.MESSAGE], dh_ratchet=True)
                             else:
                                 self.__sessions.remove(sesh)
+                    elif Flags.VOTE in flags:
+                        print("Received vote")
+                        if self.__next_policy and message == self.__next_policy[0]:
+                            self.__next_policy = (self.__next_policy[0], True)
+                            print("Voting complete")
+                        elif self.__next_policy is None:
+                            if self.__vote_timer[1] == "":
+                                self.__vote_timer = (time.time(), message)
+                        else:
+                            print("Votes don't match")
                     else:
-                        print(f"{self.__uid} received message: {message}\n")
+                        self.__recv_queue.put((sesh.uid, message))
                     break
 
     def __send(self, packet: Packet):
-        # print(f"sending {packet}")
         self.__send_queue.append(packet)
         # print(f"sent {self.get_send_queue()}")
 
@@ -325,3 +553,19 @@ class User:
                            dest=destination_user,
                            pack_encrypted=pack_enc)
         return pack_send
+
+    def set_write_privilege(self, can_write: bool):
+        self.__write_privilege = can_write
+
+    def set_policies(self, policies: str):
+        self.__policies = policies
+
+    def get_policies(self):
+        return self.__policies
+
+    def new_policy(self, policy_list: str, override: bool):
+        self.__next_policy = (policy_list, override)
+
+
+yaml.add_representer(User, User.to_yaml)
+yaml.add_constructor(User.yaml_tag, User.from_yaml)

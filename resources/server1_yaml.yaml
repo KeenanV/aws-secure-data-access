@@ -1,0 +1,18 @@
+!ClientServer
+port: 1337
+private_key: NIum3Q8RLOtr6zOOI5erAtsOczoYZHb9x9CsIPWsr6U=
+servers:
+- !Server
+  agreed: true
+  pub_key: RV4aOuylIOFCb9I+/yNJ9HFLJxQzA3hmIO31Jpvxs+k=
+  send_host: localhost
+  send_port: 2337
+  shared_key: 91a1m48D11ttDQIUZBNSFkIUW3XlSV+8SDhH2paYSAQ=
+  sid: 2
+  users:
+  - Alice
+  verified: true
+sid: 1
+users:
+- bob
+- charlie

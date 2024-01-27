@@ -1,0 +1,3 @@
+new policy
+steven: rw-resource1
+lana: r-resource1
